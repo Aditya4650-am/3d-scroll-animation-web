@@ -4,6 +4,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 
 import { FRAME_FILENAMES, TOTAL_FRAMES } from './frames.js';
+import { FRAME_DATA_URIS } from './frameData.js';
 import { FrameManager } from './frameLoader.js';
 import './SpaceshipScrollHero.css';
 
@@ -61,7 +62,12 @@ export default function SpaceshipScrollHero() {
     ctxRef.current = ctx;
 
     const baseURL = import.meta.env.BASE_URL || '/';
-    const sources = FRAME_FILENAMES.map((f) => `${baseURL}frames/${f}`);
+    // Preferred source = full-res PNG (network); fallback = inlined data URI so
+    // the animation still runs when sub-resource image requests are blocked.
+    const sources = FRAME_FILENAMES.map((f, i) => ({
+      url: `${baseURL}frames/${f}`,
+      fallback: FRAME_DATA_URIS[i],
+    }));
 
     const fm = new FrameManager(sources);
     fmRef.current = fm;
@@ -128,10 +134,16 @@ export default function SpaceshipScrollHero() {
       if (poster) poster.style.opacity = '0';
     };
 
-    const onScrollFrame = () => {
-      const progress = stRef.current
-        ? stRef.current.progress
-        : lastProgressRef.current;
+    // Deterministic scroll -> frame mapping. Progress is computed directly
+    // from window.scrollY so it works with Lenis smooth scroll, native scroll,
+    // GSAP/ScrollTrigger, or any combination — scroll position is the single
+    // source of truth.
+    const updateTargetFromScroll = () => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const max = Math.max(1, wrapper.offsetHeight - window.innerHeight);
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const progress = Math.max(0, Math.min(1, scrollY / max));
       lastProgressRef.current = progress;
 
       if (reducedMotion) return;
@@ -142,8 +154,8 @@ export default function SpaceshipScrollHero() {
         ? Math.max(0, Math.min(TOTAL_FRAMES - 1, target))
         : 0;
 
-      // Snap to an exact frame the instant we reach the end so the final
-      // frame always shows even before smoothing converges.
+      // Snap to an exact frame at the ends so the first/last frame always
+      // shows even before smoothing converges.
       if (progress >= 1) {
         targetIndexRef.current = TOTAL_FRAMES - 1;
         frameIndexRef.current = TOTAL_FRAMES - 1;
@@ -160,13 +172,11 @@ export default function SpaceshipScrollHero() {
       trigger: wrapperRef.current,
       start: 'top top',
       end: 'bottom bottom',
-      onUpdate(self) {
-        lastProgressRef.current = self.progress;
-        onScrollFrame();
+      onUpdate() {
+        updateTargetFromScroll();
       },
-      onRefresh(self) {
-        lastProgressRef.current = self.progress;
-        onScrollFrame();
+      onRefresh() {
+        updateTargetFromScroll();
       },
     });
     stRef.current = st;
@@ -188,6 +198,10 @@ export default function SpaceshipScrollHero() {
 
       lenis.raf(time);
       ScrollTrigger.update();
+
+      // Authoritative mapping from the actual scroll position (works even if
+      // Lenis/ScrollTrigger don't drive updates in a constrained environment).
+      updateTargetFromScroll();
 
       // Exponential ease toward the target index (deterministic, no flicker
       // even if a frame hasn't decoded yet — we just keep easing toward it).
@@ -251,10 +265,9 @@ export default function SpaceshipScrollHero() {
     };
   }, []);
 
-  // First-frame URL for the always-visible poster.
-  const posterURL = `${
-    import.meta.env.BASE_URL || '/'
-  }frames/${FRAME_FILENAMES[0]}`;
+  // First-frame for the always-visible poster. Use the inlined data URI so it
+  // displays even when network image requests are blocked by the proxy.
+  const posterURL = FRAME_DATA_URIS[0];
 
   return (
     <div

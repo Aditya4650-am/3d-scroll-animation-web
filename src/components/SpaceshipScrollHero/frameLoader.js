@@ -21,15 +21,21 @@ export function naturalCompare(a, b) {
 
 export class FrameManager {
   /**
-   * @param {string[]} sources array of image URLs.
+   * @param {Array<{url:string, fallback?:string}>} sources
+   *   `url` is the preferred (e.g. full-res PNG) source; `fallback` is an
+   *   offline data-URI used if `url` fails (e.g. blocked sub-resources).
    */
   constructor(sources) {
     // Defensive: never trust external ordering — always natural-sort.
-    this.urls = sources.slice().sort(naturalCompare);
+    this.urls = sources
+      .slice()
+      .sort((a, b) => naturalCompare(a.url, b.url))
+      .map((s) => ({ url: s.url, fallback: s.fallback || null }));
     this.total = this.urls.length;
     this.images = new Array(this.total).fill(null);
     // state: 'idle' | 'loading' | 'ready' | 'error'
     this.state = new Array(this.total).fill('idle');
+    this._fallbackUsed = new Array(this.total).fill(false);
     this._readyCount = 0;
     this._firstReady = false;
     this._onFirstReady = null;
@@ -65,11 +71,17 @@ export class FrameManager {
     if (this.state[index] !== 'idle') return;
     this.state[index] = 'loading';
 
+    const entry = this.urls[index];
     const img = new Image();
     img.decoding = 'async';
 
     img.onload = () => {
       if (this.state[index] !== 'loading') return;
+      if (!img.complete || img.naturalWidth === 0) {
+        // Decoded but empty — treat as failure and try the fallback.
+        this._handleFailure(index, img);
+        return;
+      }
       this.images[index] = img;
       this.state[index] = 'ready';
       this._readyCount += 1;
@@ -81,13 +93,52 @@ export class FrameManager {
     };
 
     img.onerror = () => {
-      // Graceful: mark failed and move on — never crash the animation loop.
       if (this.state[index] !== 'loading') return;
-      this.state[index] = 'error';
-      this._processQueue();
+      this._handleFailure(index, img);
     };
 
-    img.src = this.urls[index];
+    img.src = entry.url;
+    this._currentImg = img;
+  }
+
+  _handleFailure(index, img) {
+    const entry = this.urls[index];
+    if (entry.fallback && !this._fallbackUsed[index]) {
+      // Retry once with the offline data-URI so animation still works when
+      // network image requests are blocked.
+      this._fallbackUsed[index] = true;
+      img.onload = null;
+      img.onerror = null;
+      this.state[index] = 'loading';
+      const retry = new Image();
+      retry.decoding = 'async';
+      retry.onload = () => {
+        if (this.state[index] !== 'loading') return;
+        if (!retry.complete || retry.naturalWidth === 0) {
+          this.state[index] = 'error';
+          this._processQueue();
+          return;
+        }
+        this.images[index] = retry;
+        this.state[index] = 'ready';
+        this._readyCount += 1;
+        if (!this._firstReady) {
+          this._firstReady = true;
+          if (this._onFirstReady) this._onFirstReady(index);
+        }
+        this._processQueue();
+      };
+      retry.onerror = () => {
+        if (this.state[index] !== 'loading') return;
+        this.state[index] = 'error';
+        this._processQueue();
+      };
+      retry.src = entry.fallback;
+      return;
+    }
+    // Graceful: mark failed and move on — never crash the animation loop.
+    this.state[index] = 'error';
+    this._processQueue();
   }
 
   /** Load the very first frame immediately (the fastest-possible first paint). */
@@ -157,3 +208,4 @@ export class FrameManager {
     this._onFirstReady = null;
   }
 }
+

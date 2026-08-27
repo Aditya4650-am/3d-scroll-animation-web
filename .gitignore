@@ -8,3 +8,4 @@ yarn-error.log*
 # Extracted frame assets are generated at build time from the source ZIP.
 public/frames/
 src/components/SpaceshipScrollHero/frames.js
+src/components/SpaceshipScrollHero/frameData.js
