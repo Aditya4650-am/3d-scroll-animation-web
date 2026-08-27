@@ -14,33 +14,35 @@
   overflow: hidden;
 }
 
+/* Real first frame shown immediately; identical cover composition to the
+   canvas so the hand-off is seamless. */
+.spaceship-hero__poster {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: 1;
+  display: block;
+}
+
 .spaceship-hero__canvas {
   position: absolute;
   inset: 0;
   display: block;
   width: 100vw;
   height: 100vh;
-  /* Crisp, non-smoothed upscale of source pixels for a sharp cinematic look. */
-  image-rendering: auto;
-  /* Start hidden; the page's black background shows until the first frame
-     draws, then we fade in via the --fade class. */
-  opacity: 0;
-}
-
-/* Edge-to-edge dark backing so any sub-pixel edge remains invisible. */
-.spaceship-hero__canvas {
+  z-index: 2;
   background: #000;
 }
 
-/*
- * Subtle filmic vignette. Purely cosmetic, extremely restrained, and never
- * distorts the spacecraft — the frame sequence remains the hero.
- */
+/* Subtle filmic vignette. Purely cosmetic, extremely restrained, and never
+   distorts the spacecraft — the frame sequence remains the hero. */
 .spaceship-hero__vignette {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
   background:
     radial-gradient(
       ellipse at center,
@@ -49,26 +51,10 @@
     );
 }
 
-/*
- * Fade-in when the first frame becomes available (black -> animation).
- * The canvas starts fully transparent/black and fades in smoothly.
- */
-.spaceship-hero__canvas--fade {
-  animation: spaceship-hero__fadeIn 900ms ease-out forwards;
-}
-
-@keyframes spaceship-hero__fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/* Center the spacecraft region when the viewport is wider than 16:9. */
-@media (min-aspect-ratio: 16 / 9) {
+@media (prefers-reduced-motion: reduce) {
+  /* For reduced motion, keep the static poster (first frame) on screen and
+     never show the animated canvas. */
   .spaceship-hero__canvas {
-    object-fit: cover;
+    display: none;
   }
 }

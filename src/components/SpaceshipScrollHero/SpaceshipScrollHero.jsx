@@ -17,13 +17,20 @@ const DPR_CAP = 2; // cap device pixel ratio to protect GPU/CPU
 const SMOOTHING = 0.12;
 
 /**
- * The ONLY visual content on the page: a sticky, fullscreen canvas that plays
- * the provided spaceship frame sequence as the user scrolls.
+ * The ONLY visual content on the page: a sticky, fullscreen cinematic view of
+ * the provided spaceship frame sequence, driven by scroll.
+ *
+ * Guaranteed first paint: the real first frame is also rendered as a plain
+ * <img> poster (loaded natively by the browser, no JS required). When the
+ * canvas is ready it draws frame 0, then the canvas fades in on top and the
+ * poster fades out. Even in a constrained/iframe environment the spaceship is
+ * always visible from the start.
  */
 export default function SpaceshipScrollHero() {
   const wrapperRef = useRef(null);
   const stickyRef = useRef(null);
   const canvasRef = useRef(null);
+  const posterRef = useRef(null);
   const vignetteRef = useRef(null);
 
   // Animation state lives entirely in refs — never in React state — so a
@@ -40,22 +47,21 @@ export default function SpaceshipScrollHero() {
   const resizeObserverRef = useRef(null);
   const srcWRef = useRef(0);
   const srcHRef = useRef(0);
-  const firstReadyRef = useRef(false);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches;
 
-    const ctx = canvasRef.current.getContext('2d', {
+    const canvas = canvasRef.current;
+    const poster = posterRef.current;
+    const ctx = canvas.getContext('2d', {
       alpha: false, // opaque canvas -> avoids compositing cost
     });
     ctxRef.current = ctx;
 
     const baseURL = import.meta.env.BASE_URL || '/';
-    const sources = FRAME_FILENAMES.map(
-      (f) => `${baseURL}frames/${f}`,
-    );
+    const sources = FRAME_FILENAMES.map((f) => `${baseURL}frames/${f}`);
 
     const fm = new FrameManager(sources);
     fmRef.current = fm;
@@ -67,7 +73,6 @@ export default function SpaceshipScrollHero() {
       const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
       const w = Math.max(1, Math.round(vw * dpr));
       const h = Math.max(1, Math.round(vh * dpr));
-      const canvas = canvasRef.current;
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -83,9 +88,7 @@ export default function SpaceshipScrollHero() {
     // ---------- draw ----------
     const drawFrame = (index) => {
       const img = fm.getFrame(index);
-      const source = img
-        ? index
-        : fm.nearestReady(index);
+      const source = img ? index : fm.nearestReady(index);
       const frame = source !== null ? fm.getFrame(source) : null;
 
       const cw = window.innerWidth;
@@ -112,8 +115,20 @@ export default function SpaceshipScrollHero() {
       ctx.drawImage(frame, dx, dy, dw, dh);
     };
 
+    // Hand the visuals over to the canvas once the first frame is decoded.
+    const activateCanvas = () => {
+      if (reducedMotion) return; // keep the static poster for reduced motion
+      const first = fm.getFrame(0);
+      if (!first) return;
+      srcWRef.current = first.naturalWidth;
+      srcHRef.current = first.naturalHeight;
+      drawFrame(0);
+      // Fade the poster out and the canvas in (deterministic inline styles).
+      if (canvas) canvas.style.opacity = '1';
+      if (poster) poster.style.opacity = '0';
+    };
+
     const onScrollFrame = () => {
-      // Triggered by Lenis -> never fight the browser scroll.
       const progress = stRef.current
         ? stRef.current.progress
         : lastProgressRef.current;
@@ -133,8 +148,7 @@ export default function SpaceshipScrollHero() {
         targetIndexRef.current = TOTAL_FRAMES - 1;
         frameIndexRef.current = TOTAL_FRAMES - 1;
         lastDrawIndexRef.current = -1;
-      }
-      if (progress <= 0) {
+      } else if (progress <= 0) {
         targetIndexRef.current = 0;
         frameIndexRef.current = 0;
         lastDrawIndexRef.current = -1;
@@ -195,27 +209,18 @@ export default function SpaceshipScrollHero() {
     rafRef.current = requestAnimationFrame(loop);
 
     // ---------- progressive loading ----------
-    fm.loadFirst(); // paint the first frame ASAP
-
-    fm.onFirstReady(() => {
-      const canvas = canvasRef.current;
-      if (canvas && !canvas.classList.contains('spaceship-hero__canvas--fade')) {
-        // Draw immediately so the very first frame shows, then fade in.
-        srcWRef.current = fm.getFrame(0)?.naturalWidth || 0;
-        srcHRef.current = fm.getFrame(0)?.naturalHeight || 0;
-        drawFrame(0);
-        canvas.classList.add('spaceship-hero__canvas--fade');
-        firstReadyRef.current = true;
-        requestAnimationFrame(() => drawFrame(0));
-      }
-    });
+    fm.loadFirst(); // paint the first frame ASAP (into the poster + canvas)
+    fm.onFirstReady(activateCanvas);
 
     // Preload the rest in the background (after first paint), windowed.
-    const idlePreload = () => {
-      fm.loadWindow(Math.round(targetIndexRef.current), 6);
-      fm.queueRemaining();
-    };
-    idlePreload();
+    fm.loadWindow(Math.round(targetIndexRef.current), 6);
+    fm.queueRemaining();
+
+    // Safety net: if the poster somehow failed, still try to activate the
+    // canvas as soon as frame 0 is available, and keep the page black.
+    const posterCheck = window.setTimeout(() => {
+      if (fm.isReady(0)) activateCanvas();
+    }, 1500);
 
     // ---------- resize / orientation handling ----------
     const onResize = () => {
@@ -236,6 +241,7 @@ export default function SpaceshipScrollHero() {
     // ---------- cleanup ----------
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (posterCheck) window.clearTimeout(posterCheck);
       if (lenisRef.current) lenisRef.current.destroy();
       window.removeEventListener('resize', onResize);
       if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
@@ -245,6 +251,11 @@ export default function SpaceshipScrollHero() {
     };
   }, []);
 
+  // First-frame URL for the always-visible poster.
+  const posterURL = `${
+    import.meta.env.BASE_URL || '/'
+  }frames/${FRAME_FILENAMES[0]}`;
+
   return (
     <div
       ref={wrapperRef}
@@ -252,10 +263,22 @@ export default function SpaceshipScrollHero() {
       style={{ background: '#000' }}
     >
       <div ref={stickyRef} className="spaceship-hero__sticky">
+        {/* Real first frame, shown immediately via native image loading.
+            Fades out once the interactive canvas takes over. */}
+        <img
+          ref={posterRef}
+          className="spaceship-hero__poster"
+          src={posterURL}
+          alt=""
+          aria-hidden="true"
+          draggable="false"
+          style={{ opacity: 1, transition: 'opacity 0.9s ease' }}
+        />
         <canvas
           ref={canvasRef}
           className="spaceship-hero__canvas"
           aria-hidden="true"
+          style={{ opacity: 0, transition: 'opacity 0.9s ease' }}
         />
         <div
           ref={vignetteRef}
