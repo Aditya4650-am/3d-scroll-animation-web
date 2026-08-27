@@ -19,11 +19,16 @@ export function naturalCompare(a, b) {
   });
 }
 
+// If a network frame request neither loads nor errors within this window, we
+// assume it is being blocked/hung (e.g. inside a token-enforced proxy) and fall
+// back to the inlined data URI so the animation still advances.
+const NETWORK_TIMEOUT_MS = 2500;
+
 export class FrameManager {
   /**
    * @param {Array<{url:string, fallback?:string}>} sources
    *   `url` is the preferred (e.g. full-res PNG) source; `fallback` is an
-   *   offline data-URI used if `url` fails (e.g. blocked sub-resources).
+   *   offline data-URI used if `url` fails or hangs.
    */
   constructor(sources) {
     // Defensive: never trust external ordering — always natural-sort.
@@ -36,11 +41,30 @@ export class FrameManager {
     // state: 'idle' | 'loading' | 'ready' | 'error'
     this.state = new Array(this.total).fill('idle');
     this._fallbackUsed = new Array(this.total).fill(false);
+    this._timers = new Array(this.total).fill(null);
     this._readyCount = 0;
     this._firstReady = false;
     this._onFirstReady = null;
     this._queue = [];
     this._processingQueue = false;
+  }
+
+  _clearTimer(index) {
+    if (this._timers[index]) {
+      window.clearTimeout(this._timers[index]);
+      this._timers[index] = null;
+    }
+  }
+
+  _armTimeout(index) {
+    this._clearTimer(index);
+    this._timers[index] = window.setTimeout(() => {
+      this._timers[index] = null;
+      // Still loading after the window => treat as hung and try the fallback.
+      if (this.state[index] === 'loading') {
+        this._handleFailure(index, null);
+      }
+    }, NETWORK_TIMEOUT_MS);
   }
 
   /** @param {(index:number)=>void} cb called once the very first frame decodes. */
@@ -82,6 +106,7 @@ export class FrameManager {
         this._handleFailure(index, img);
         return;
       }
+      this._clearTimer(index);
       this.images[index] = img;
       this.state[index] = 'ready';
       this._readyCount += 1;
@@ -97,18 +122,28 @@ export class FrameManager {
       this._handleFailure(index, img);
     };
 
+    img.onabort = () => {
+      if (this.state[index] !== 'loading') return;
+      this._handleFailure(index, img);
+    };
+
     img.src = entry.url;
     this._currentImg = img;
+    this._armTimeout(index);
   }
 
   _handleFailure(index, img) {
     const entry = this.urls[index];
     if (entry.fallback && !this._fallbackUsed[index]) {
-      // Retry once with the offline data-URI so animation still works when
-      // network image requests are blocked.
+      // Retry with the offline data-URI so animation still works when network
+      // image requests are blocked or hang.
       this._fallbackUsed[index] = true;
-      img.onload = null;
-      img.onerror = null;
+      this._clearTimer(index);
+      if (img) {
+        img.onload = null;
+        img.onerror = null;
+        img.onabort = null;
+      }
       this.state[index] = 'loading';
       const retry = new Image();
       retry.decoding = 'async';
@@ -119,6 +154,7 @@ export class FrameManager {
           this._processQueue();
           return;
         }
+        this._clearTimer(index);
         this.images[index] = retry;
         this.state[index] = 'ready';
         this._readyCount += 1;
@@ -130,13 +166,17 @@ export class FrameManager {
       };
       retry.onerror = () => {
         if (this.state[index] !== 'loading') return;
+        this._clearTimer(index);
         this.state[index] = 'error';
         this._processQueue();
       };
+      // Data URIs decode near-instantly; a short timer is just a safety net.
       retry.src = entry.fallback;
+      this._armTimeout(index);
       return;
     }
     // Graceful: mark failed and move on — never crash the animation loop.
+    this._clearTimer(index);
     this.state[index] = 'error';
     this._processQueue();
   }
@@ -195,10 +235,12 @@ export class FrameManager {
   /** Release references to decoded images to free memory (on unmount). */
   dispose() {
     for (let i = 0; i < this.total; i += 1) {
+      this._clearTimer(i);
       const img = this.images[i];
       if (img) {
         img.onload = null;
         img.onerror = null;
+        img.onabort = null;
         img.src = '';
       }
       this.images[i] = null;

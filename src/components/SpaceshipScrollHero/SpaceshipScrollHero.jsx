@@ -243,6 +243,22 @@ export default function SpaceshipScrollHero() {
     };
     window.addEventListener('resize', onResize);
 
+    // Direct scroll handler: maps scroll -> frame and draws immediately, so
+    // scrolling ALWAYS advances the animation even if requestAnimationFrame is
+    // throttled in a constrained preview iframe. Scroll is the source of truth.
+    const onScroll = () => {
+      updateTargetFromScroll();
+      const t = targetIndexRef.current;
+      const idx = Math.round(t);
+      if (idx !== lastDrawIndexRef.current) {
+        frameIndexRef.current = t;
+        lastDrawIndexRef.current = idx;
+        drawFrame(idx);
+      }
+      fm.loadWindow(idx, PRELOAD_WINDOW);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+
     const ro = new ResizeObserver(() => onResize());
     if (stickyRef.current) ro.observe(stickyRef.current);
     resizeObserverRef.current = ro;
@@ -258,6 +274,7 @@ export default function SpaceshipScrollHero() {
       if (posterCheck) window.clearTimeout(posterCheck);
       if (lenisRef.current) lenisRef.current.destroy();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll);
       if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
       if (stRef.current) stRef.current.kill();
       fm.dispose();
