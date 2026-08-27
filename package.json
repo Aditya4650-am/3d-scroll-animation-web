@@ -8,8 +8,9 @@
     "predev": "node scripts/extract-frames.mjs",
     "dev": "vite",
     "prebuild": "node scripts/extract-frames.mjs",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "vite build && node scripts/inline-build.mjs",
+    "preview": "vite preview",
+    "serve:dist": "npm run build && vite preview"
   },
   "dependencies": {
     "gsap": "^3.12.5",
