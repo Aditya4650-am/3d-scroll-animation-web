@@ -19,6 +19,12 @@
         background: #000;
         width: 100%;
       }
+      /* Guaranteed-visible first frame: the real spaceship frame_001 renders
+         even before React/JS runs, so the page is never a black screen. */
+      body {
+        background: #000 url('/frames/frame_001.png') center / cover no-repeat;
+        background-attachment: fixed;
+      }
     </style>
   </head>
   <body>

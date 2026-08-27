@@ -12,6 +12,9 @@
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  /* CSS-only first frame: renders the real spaceship even before/without JS,
+     guaranteeing the hero is never a black screen. */
+  background: #000 url('/frames/frame_001.png') center / cover no-repeat;
 }
 
 /* Real first frame shown immediately; identical cover composition to the
