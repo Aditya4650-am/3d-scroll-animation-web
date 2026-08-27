@@ -16,6 +16,10 @@ const DPR_CAP = 2; // cap device pixel ratio to protect GPU/CPU
 // Smoothing factor for scroll -> frame interpolation. 0.12 yields a smooth,
 // camera-like ease across frames while still tracking the wheel accurately.
 const SMOOTHING = 0.12;
+// Sensitivity for the wheel/touch fallback. Used only when the inner window
+// isn't actually scrollable (e.g. an auto-height preview iframe), so input
+// still advances the animation. Lower = more sensitive.
+const WHEEL_SCALE = 1 / 2400;
 
 /**
  * The ONLY visual content on the page: a sticky, fullscreen cinematic view of
@@ -48,6 +52,8 @@ export default function SpaceshipScrollHero() {
   const resizeObserverRef = useRef(null);
   const srcWRef = useRef(0);
   const srcHRef = useRef(0);
+  // Accumulated wheel/touch input used when the window isn't scrollable.
+  const wheelAccumRef = useRef(0);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia(
@@ -134,16 +140,29 @@ export default function SpaceshipScrollHero() {
       if (poster) poster.style.opacity = '0';
     };
 
-    // Deterministic scroll -> frame mapping. Progress is computed directly
-    // from window.scrollY so it works with Lenis smooth scroll, native scroll,
-    // GSAP/ScrollTrigger, or any combination — scroll position is the single
-    // source of truth.
+    // True when the inner window actually scrolls (i.e. the document is taller
+    // than the viewport). In an auto-height preview iframe this is false.
+    const isWindowScrollable = () =>
+      document.documentElement.scrollHeight > window.innerHeight + 2;
+
+    // Deterministic scroll -> frame mapping. When the window scrolls we use the
+    // real scroll position; when it doesn't (auto-height iframe) we use the
+    // accumulated wheel/touch input so the animation still advances.
     const updateTargetFromScroll = () => {
-      const wrapper = wrapperRef.current;
-      if (!wrapper) return;
-      const max = Math.max(1, wrapper.offsetHeight - window.innerHeight);
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const progress = Math.max(0, Math.min(1, scrollY / max));
+      let progress;
+      if (isWindowScrollable()) {
+        const wrapper = wrapperRef.current;
+        const max = wrapper
+          ? Math.max(1, wrapper.offsetHeight - window.innerHeight)
+          : 1;
+        const scrollY = window.scrollY || window.pageYOffset || 0;
+        progress = Math.max(0, Math.min(1, scrollY / max));
+      } else {
+        progress = Math.max(
+          0,
+          Math.min(1, wheelAccumRef.current * WHEEL_SCALE),
+        );
+      }
       lastProgressRef.current = progress;
 
       if (reducedMotion) return;
@@ -259,6 +278,42 @@ export default function SpaceshipScrollHero() {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
 
+    // Wheel/touch fallback: if the inner window isn't scrollable (auto-height
+    // preview iframe), accumulate input so frames still advance.
+    const drawFromInput = () => {
+      updateTargetFromScroll();
+      const t = targetIndexRef.current;
+      const idx = Math.round(t);
+      if (idx !== lastDrawIndexRef.current) {
+        frameIndexRef.current = t;
+        lastDrawIndexRef.current = idx;
+        drawFrame(idx);
+      }
+      fm.loadWindow(idx, PRELOAD_WINDOW);
+    };
+    const onWheel = (e) => {
+      if (isWindowScrollable()) return; // native scroll handles it
+      wheelAccumRef.current += e.deltaY;
+      drawFromInput();
+    };
+    window.addEventListener('wheel', onWheel, { passive: true });
+
+    const onTouch = (e) => {
+      if (isWindowScrollable()) return; // native scroll handles it
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      if (onTouch._lastY == null) onTouch._lastY = t.clientY;
+      const dy = onTouch._lastY - t.clientY;
+      onTouch._lastY = t.clientY;
+      wheelAccumRef.current += dy;
+      drawFromInput();
+    };
+    window.addEventListener('touchmove', onTouch, { passive: true });
+    const onTouchTouchend = () => {
+      onTouch._lastY = null;
+    };
+    window.addEventListener('touchend', onTouchTouchend);
+
     const ro = new ResizeObserver(() => onResize());
     if (stickyRef.current) ro.observe(stickyRef.current);
     resizeObserverRef.current = ro;
@@ -275,6 +330,9 @@ export default function SpaceshipScrollHero() {
       if (lenisRef.current) lenisRef.current.destroy();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('touchmove', onTouch);
+      window.removeEventListener('touchend', onTouchTouchend);
       if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
       if (stRef.current) stRef.current.kill();
       fm.dispose();
