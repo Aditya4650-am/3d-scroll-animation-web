@@ -1,0 +1,23 @@
+{
+  "name": "spaceship-scroll-hero",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Cinematic scroll-driven spaceship hero built from provided frame sequence.",
+  "scripts": {
+    "predev": "node scripts/extract-frames.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/extract-frames.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "gsap": "^3.12.5",
+    "lenis": "^1.1.18",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
+  }
+}

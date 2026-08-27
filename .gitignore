@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+
+# Extracted frame assets are generated at build time from the source ZIP.
+public/frames/
+src/components/SpaceshipScrollHero/frames.js

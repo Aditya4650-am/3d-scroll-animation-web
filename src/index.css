@@ -1,0 +1,50 @@
+:root {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+}
+
+html {
+  /* Lenis recommends scroll-behavior auto (avoid CSS smooth scrolling). */
+  scroll-behavior: auto;
+}
+
+body {
+  /* Always allow programmatic scrolling; hide any stray overflow. */
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100vh;
+  background: #000;
+}
+
+/* No native scrollbar chrome inside the hero (edge-to-edge cinematic view). */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,74 @@
+.spaceship-hero__wrapper {
+  position: relative;
+  width: 100%;
+  /* Reserve the full scroll timeline so the sticky canvas stays pinned. */
+  height: 700vh;
+}
+
+.spaceship-hero__sticky {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.spaceship-hero__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  /* Crisp, non-smoothed upscale of source pixels for a sharp cinematic look. */
+  image-rendering: auto;
+  /* Start hidden; the page's black background shows until the first frame
+     draws, then we fade in via the --fade class. */
+  opacity: 0;
+}
+
+/* Edge-to-edge dark backing so any sub-pixel edge remains invisible. */
+.spaceship-hero__canvas {
+  background: #000;
+}
+
+/*
+ * Subtle filmic vignette. Purely cosmetic, extremely restrained, and never
+ * distorts the spacecraft — the frame sequence remains the hero.
+ */
+.spaceship-hero__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 62%,
+      rgba(0, 0, 0, 0.22) 100%
+    );
+}
+
+/*
+ * Fade-in when the first frame becomes available (black -> animation).
+ * The canvas starts fully transparent/black and fades in smoothly.
+ */
+.spaceship-hero__canvas--fade {
+  animation: spaceship-hero__fadeIn 900ms ease-out forwards;
+}
+
+@keyframes spaceship-hero__fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Center the spacecraft region when the viewport is wider than 16:9. */
+@media (min-aspect-ratio: 16 / 9) {
+  .spaceship-hero__canvas {
+    object-fit: cover;
+  }
+}
